@@ -1,0 +1,23 @@
+{
+  "name": "calorie-tracker-backend",
+  "version": "1.0.0",
+  "description": "Professional Calorie Tracker Backend - Indian Standard",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "dev:nodemon": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.0.0",
+    "morgan": "^1.10.0",
+    "zod": "^3.22.4"
+  }
+}

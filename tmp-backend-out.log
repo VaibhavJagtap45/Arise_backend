@@ -1,0 +1,9 @@
+
+> calorie-tracker-backend@1.0.0 start
+> node src/index.js
+
+Calorie Tracker API running on http://0.0.0.0:5000
+Connected to MongoDB
+Seeded Indian foods. Inserted: 0, updated: 230
+[0mGET /health [32m200[0m 3.380 ms - 125[0m
+[0mGET /health [32m200[0m 7.874 ms - 125[0m
