@@ -8,6 +8,16 @@ const reminderSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// One dated weigh-in. Kept on the user so the trend chart, current weight and
+// all derived maths (BMI/TDEE/target) stay in sync from a single source.
+const weightEntrySchema = new mongoose.Schema(
+  {
+    date: { type: Date, required: true },
+    weight: { type: Number, required: true, min: 20, max: 500 },
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema(
   {
     email: {
@@ -84,6 +94,10 @@ const userSchema = new mongoose.Schema(
     dailyCalorieTarget: {
       type: Number,
       default: 2000,
+    },
+    weightHistory: {
+      type: [weightEntrySchema],
+      default: [],
     },
     reminders: {
       water: {

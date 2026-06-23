@@ -85,6 +85,29 @@ export const calculateWaterIntake = (weight) => {
   return { ml, litres: round1(ml / 1000) };
 };
 
+// Daily micronutrient reference intakes. These lean on the ICMR-NIN 2020 RDAs
+// for Indian adults, with widely-used international values where ICMR is silent.
+// Every value is a "meet or exceed" goal EXCEPT sodium, which is an upper limit
+// (sodiumLimit) the day should stay under. Fiber scales with the calorie target
+// (~14 g per 1000 kcal); the rest vary mainly by sex and age. Indian diets —
+// especially vegetarian ones — commonly fall short on iron, calcium and protein,
+// which is exactly what surfacing these targets is meant to catch.
+export const calculateMicronutrientTargets = (profile, targetCalories) => {
+  const isFemale = profile.gender === "female";
+  const older = Number(profile.age) >= 50;
+  const kcal = targetCalories || 2000;
+
+  return {
+    fiber: round((kcal / 1000) * 14), // g — 14 g per 1000 kcal
+    calcium: older ? 1200 : 1000, // mg
+    iron: isFemale && !older ? 29 : 19, // mg — premenopausal women need more
+    potassium: 3500, // mg — WHO recommendation
+    vitaminC: isFemale ? 65 : 80, // mg
+    vitaminA: isFemale ? 840 : 1000, // mcg RAE
+    sodiumLimit: 2000, // mg — upper limit, not a goal (WHO)
+  };
+};
+
 // Approximate energy stored in 1 kg of body weight (~7700 kcal per kg of fat),
 // used to translate the goal's daily calorie delta into a weekly weight change.
 const KCAL_PER_KG = 7700;
@@ -182,6 +205,7 @@ export const buildNutritionSummary = (profile) => {
 
   const macros = calculateMacros(targetCalories, weight);
   const water = calculateWaterIntake(weight);
+  const micros = calculateMicronutrientTargets(profile, targetCalories);
   const weightGoal = calculateWeightGoal(profile, appliedDelta);
 
   return {
@@ -192,6 +216,7 @@ export const buildNutritionSummary = (profile) => {
     targetCalories,
     macros,
     water,
+    micros,
     currentWeight: weight,
     weightGoal,
   };

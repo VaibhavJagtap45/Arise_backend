@@ -47,6 +47,11 @@ const UpdateProfileSchema = z.object({
   dietType: z.enum(["vegetarian", "non_vegetarian"]).optional(),
 });
 
+const LogWeightSchema = z.object({
+  weight: z.coerce.number().min(20).max(500),
+  date: z.string().datetime().optional(),
+});
+
 class UserController {
   async getProfile(req, res, next) {
     try {
@@ -104,6 +109,25 @@ class UserController {
     try {
       const plan = await userService.getNutritionPlan(req.user.id);
       res.json({ success: true, data: plan });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getWeightProgress(req, res, next) {
+    try {
+      const progress = await userService.getWeightProgress(req.user.id);
+      res.json({ success: true, data: progress });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async logWeight(req, res, next) {
+    try {
+      const data = LogWeightSchema.parse(req.body);
+      const progress = await userService.logWeight(req.user.id, data);
+      res.json({ success: true, data: progress });
     } catch (error) {
       next(error);
     }

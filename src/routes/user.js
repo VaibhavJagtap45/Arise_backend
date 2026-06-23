@@ -17,5 +17,11 @@ router.get("/daily-target", (req, res, next) =>
 router.get("/nutrition-plan", (req, res, next) =>
   userController.getNutritionPlan(req, res, next),
 );
+router.get("/weight", (req, res, next) =>
+  userController.getWeightProgress(req, res, next),
+);
+router.post("/weight", (req, res, next) =>
+  userController.logWeight(req, res, next),
+);
 
 export default router;
