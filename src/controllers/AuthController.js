@@ -1,4 +1,4 @@
-﻿import { z } from "zod";
+import { z } from "zod";
 import { authService } from "../services/AuthService.js";
 
 const ReminderSchema = z
@@ -95,6 +95,7 @@ class AuthController {
       next(error);
     }
   }
+
   async forgotPassword(req, res, next) {
     try {
       const data = ForgotPasswordSchema.parse(req.body);

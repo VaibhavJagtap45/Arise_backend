@@ -1,4 +1,4 @@
-﻿import bcrypt from "bcryptjs";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { User } from "../models/User.js";
 import { AppError } from "../middlewares/errorHandler.js";
@@ -7,6 +7,9 @@ import { userService } from "./UserService.js";
 class AuthService {
   constructor() {
     this.jwtSecret = process.env.JWT_SECRET || "dev-secret-change-me";
+    // Sessions last 7 days by default; override with JWT_EXPIRES_IN (e.g. "12h",
+    // "30d"). After this window the client receives a 401 and is signed out.
+    this.jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
     this.saltRounds = 10;
   }
 
@@ -106,7 +109,7 @@ class AuthService {
   }
 
   generateToken(userId) {
-    return jwt.sign({ userId }, this.jwtSecret, { expiresIn: "7d" });
+    return jwt.sign({ userId }, this.jwtSecret, { expiresIn: this.jwtExpiresIn });
   }
 
   sanitizeUser(user) {

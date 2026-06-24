@@ -35,26 +35,20 @@ const roundOne = (value) => Math.round((Number(value) || 0) * 10) / 10;
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 class FoodService {
-  getVisibilityFilter(userId) {
-    return {
-      $or: [{ isCustom: { $ne: true } }, { createdBy: userId }],
-    };
-  }
-
-  async searchFoods(query = "", category, userId) {
+  // Homemade foods added by any user are saved to the shared library and shown
+  // to everyone — the library is one growing community collection. Seeded foods
+  // (isCustom !== true) were always public; custom foods are now public too.
+  // createdBy/isCustom stay on each document for attribution, not for filtering.
+  async searchFoods(query = "", category) {
     const trimmedQuery = query.trim();
-    const filter = this.getVisibilityFilter(userId);
+    const filter = {};
 
     if (trimmedQuery) {
       const searchRegex = new RegExp(escapeRegex(trimmedQuery), "i");
-      filter.$and = [
-        {
-          $or: [
-            { name: searchRegex },
-            { category: searchRegex },
-            { aliases: searchRegex },
-          ],
-        },
+      filter.$or = [
+        { name: searchRegex },
+        { category: searchRegex },
+        { aliases: searchRegex },
       ];
     }
 
@@ -69,18 +63,12 @@ class FoodService {
     return Food.findById(id);
   }
 
-  async getFoodsByCategory(category, userId) {
-    return Food.find({
-      category,
-      ...this.getVisibilityFilter(userId),
-    }).sort({ name: 1 });
+  async getFoodsByCategory(category) {
+    return Food.find({ category }).sort({ name: 1 });
   }
 
-  async getAllCategories(userId) {
-    const categories = await Food.distinct(
-      "category",
-      this.getVisibilityFilter(userId),
-    );
+  async getAllCategories() {
+    const categories = await Food.distinct("category");
     return categories.sort();
   }
 

@@ -32,7 +32,7 @@ class FoodController {
       const category =
         typeof req.query.category === "string" ? req.query.category : undefined;
 
-      const foods = await foodService.searchFoods(query, category, req.user.id);
+      const foods = await foodService.searchFoods(query, category);
       res.json({ success: true, data: foods });
     } catch (error) {
       next(error);
@@ -66,7 +66,7 @@ class FoodController {
 
   async getCategories(req, res, next) {
     try {
-      const categories = await foodService.getAllCategories(req.user.id);
+      const categories = await foodService.getAllCategories();
       res.json({ success: true, data: categories });
     } catch (error) {
       next(error);
@@ -76,7 +76,7 @@ class FoodController {
   async getFoodsByCategory(req, res, next) {
     try {
       const { category } = req.params;
-      const foods = await foodService.getFoodsByCategory(category, req.user.id);
+      const foods = await foodService.getFoodsByCategory(category);
       res.json({ success: true, data: foods });
     } catch (error) {
       next(error);
