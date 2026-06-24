@@ -27,9 +27,9 @@ const exerciseEntrySchema = new mongoose.Schema(
   {
     exerciseId: { type: String, required: true },
     name: { type: String, required: true },
-    type: { type: String, required: true }, // duration | reps
-    amount: { type: Number, required: true }, // minutes or reps
-    unit: { type: String, required: true }, // min | reps
+    type: { type: String, required: true }, // distance | duration | reps
+    amount: { type: Number, required: true }, // km, minutes or reps
+    unit: { type: String, required: true }, // km | min | reps
     calories: { type: Number, default: 0 },
   },
   { _id: false },
