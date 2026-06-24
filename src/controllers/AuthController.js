@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 import { authService } from "../services/AuthService.js";
 
 const ReminderSchema = z
@@ -54,6 +54,22 @@ const LoginSchema = z.object({
   password: z.string().min(6),
 });
 
+const ForgotPasswordSchema = z.object({
+  email: z.string().email(),
+  fullName: z.string().min(2),
+  newPassword: z.string().min(6),
+});
+
+const ChangePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(6),
+    newPassword: z.string().min(6),
+  })
+  .refine((data) => data.currentPassword !== data.newPassword, {
+    message: "New password must be different from the current one",
+    path: ["newPassword"],
+  });
+
 class AuthController {
   async register(req, res, next) {
     try {
@@ -74,6 +90,33 @@ class AuthController {
     try {
       const data = LoginSchema.parse(req.body);
       const result = await authService.login(data.email, data.password);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+  async forgotPassword(req, res, next) {
+    try {
+      const data = ForgotPasswordSchema.parse(req.body);
+      const result = await authService.resetPassword(
+        data.email,
+        data.fullName,
+        data.newPassword,
+      );
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async changePassword(req, res, next) {
+    try {
+      const data = ChangePasswordSchema.parse(req.body);
+      const result = await authService.changePassword(
+        req.user.id,
+        data.currentPassword,
+        data.newPassword,
+      );
       res.status(200).json({ success: true, data: result });
     } catch (error) {
       next(error);
