@@ -37,6 +37,22 @@ const userSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    phone: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    address: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    // Profile photo stored as a data URI (base64) or a URL. Kept on the user doc
+    // so it travels with login/profile responses without a separate file store.
+    profilePhoto: {
+      type: String,
+      default: "",
+    },
     age: {
       type: Number,
       required: true,
