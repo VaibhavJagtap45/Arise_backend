@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { User } from "../models/User.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { userService } from "./UserService.js";
+import { isAdminEmail } from "../config/admin.js";
 
 class AuthService {
   constructor() {
@@ -33,6 +34,9 @@ class AuthService {
     });
 
     user.dailyCalorieTarget = userService.calculateDailyCalorieTarget(user);
+    if (isAdminEmail(user.email)) {
+      user.role = "admin";
+    }
     await user.save();
 
     const token = this.generateToken(user._id.toString());
@@ -50,8 +54,19 @@ class AuthService {
       throw new AppError(401, "Invalid credentials");
     }
 
+    await this.ensureAdminRole(user);
+
     const token = this.generateToken(user._id.toString());
     return { user: this.sanitizeUser(user), token };
+  }
+
+  // Promote an account configured via ADMIN_EMAILS to the admin role on sign-in,
+  // so granting access needs only an env change and a fresh login.
+  async ensureAdminRole(user) {
+    if (isAdminEmail(user.email) && user.role !== "admin") {
+      user.role = "admin";
+      await user.save();
+    }
   }
 
   // Email-free password reset. With no mail/OTP service wired up, identity is
@@ -75,6 +90,9 @@ class AuthService {
     }
 
     user.password = await bcrypt.hash(newPassword, this.saltRounds);
+    if (isAdminEmail(user.email)) {
+      user.role = "admin";
+    }
     await user.save();
 
     const token = this.generateToken(user._id.toString());

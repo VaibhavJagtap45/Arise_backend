@@ -12,6 +12,7 @@ import foodRoutes from "./routes/food.js";
 import logRoutes from "./routes/log.js";
 import userRoutes from "./routes/user.js";
 import moneyRoutes from "./routes/money.js";
+import adminRoutes from "./routes/admin.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -93,6 +94,7 @@ app.use("/api/foods", requireDatabase, foodRoutes);
 app.use("/api/logs", requireDatabase, logRoutes);
 app.use("/api/users", requireDatabase, userRoutes);
 app.use("/api/money", requireDatabase, moneyRoutes);
+app.use("/api/admin", requireDatabase, adminRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, error: "Route not found" });

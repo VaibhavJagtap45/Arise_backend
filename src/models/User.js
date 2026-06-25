@@ -37,6 +37,13 @@ const userSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    // Access role. Admins (see config/admin.js + ADMIN_EMAILS) can view the admin
+    // panel; everyone else is a normal user.
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+    },
     phone: {
       type: String,
       trim: true,
