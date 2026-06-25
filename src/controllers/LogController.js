@@ -2,24 +2,32 @@ import { z } from "zod";
 import { logService } from "../services/LogService.js";
 import { exerciseCatalog } from "../utils/exerciseCalculator.js";
 
+// Optional ISO date lets the meal/exercise/notes endpoints edit a past day's log
+// (e.g. from the Monthly Log day view); omitted means today.
+const isoDate = z.string().datetime().optional();
+
 const AddMealSchema = z.object({
   mealType: z.enum(["breakfast", "lunch", "dinner", "snacks"]),
   foodId: z.string().min(1),
   quantity: z.coerce.number().positive(),
+  date: isoDate,
 });
 
 const RemoveMealSchema = z.object({
   mealType: z.enum(["breakfast", "lunch", "dinner", "snacks"]),
   index: z.coerce.number().int().nonnegative(),
+  date: isoDate,
 });
 
 const AddExerciseSchema = z.object({
   exerciseId: z.string().min(1),
   amount: z.coerce.number().positive(),
+  date: isoDate,
 });
 
 const RemoveExerciseSchema = z.object({
   index: z.coerce.number().int().nonnegative(),
+  date: isoDate,
 });
 
 const MonthSchema = z.object({
@@ -45,6 +53,7 @@ class LogController {
         data.mealType,
         data.foodId,
         data.quantity,
+        data.date,
       );
       res.json({ success: true, data: log });
     } catch (error) {
@@ -59,6 +68,7 @@ class LogController {
         req.user.id,
         data.mealType,
         data.index,
+        data.date,
       );
       res.json({ success: true, data: log });
     } catch (error) {
@@ -73,6 +83,7 @@ class LogController {
         req.user.id,
         data.exerciseId,
         data.amount,
+        data.date,
       );
       res.json({ success: true, data: log });
     } catch (error) {
@@ -83,7 +94,11 @@ class LogController {
   async removeExercise(req, res, next) {
     try {
       const data = RemoveExerciseSchema.parse(req.body);
-      const log = await logService.removeExerciseEntry(req.user.id, data.index);
+      const log = await logService.removeExerciseEntry(
+        req.user.id,
+        data.index,
+        data.date,
+      );
       res.json({ success: true, data: log });
     } catch (error) {
       next(error);
@@ -121,7 +136,8 @@ class LogController {
   async updateNotes(req, res, next) {
     try {
       const notes = typeof req.body.notes === "string" ? req.body.notes : "";
-      const log = await logService.updateNotes(req.user.id, notes);
+      const date = typeof req.body.date === "string" ? req.body.date : undefined;
+      const log = await logService.updateNotes(req.user.id, notes, date);
       res.json({ success: true, data: log });
     } catch (error) {
       next(error);

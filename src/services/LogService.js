@@ -63,10 +63,26 @@ class LogService {
     return log;
   }
 
-  async addMealEntry(userId, mealType, foodId, quantity) {
+  // Resolve the log to mutate: a specific (past/today) date when supplied, else
+  // today. Editing a future date is rejected so back-dated edits stay sane.
+  async getEditableLog(userId, date) {
+    if (date) {
+      const target = new Date(date);
+      if (Number.isNaN(target.getTime())) {
+        throw new AppError(400, "Invalid date");
+      }
+      if (startOfISTDay(target) > startOfISTDay(new Date())) {
+        throw new AppError(400, "Cannot edit a future date");
+      }
+      return this.getOrCreateLogByDate(userId, target);
+    }
+    return this.getOrCreateTodayLog(userId);
+  }
+
+  async addMealEntry(userId, mealType, foodId, quantity, date) {
     this.assertMealType(mealType);
 
-    const log = await this.getOrCreateTodayLog(userId);
+    const log = await this.getEditableLog(userId, date);
     const nutrition = await foodService.calculateNutrition(foodId, quantity);
 
     log.meals[mealType].push(nutrition);
@@ -76,10 +92,10 @@ class LogService {
     return log;
   }
 
-  async removeMealEntry(userId, mealType, index) {
+  async removeMealEntry(userId, mealType, index, date) {
     this.assertMealType(mealType);
 
-    const log = await this.getOrCreateTodayLog(userId);
+    const log = await this.getEditableLog(userId, date);
 
     if (index < 0 || index >= log.meals[mealType].length) {
       throw new AppError(400, "Invalid meal entry index");
@@ -92,7 +108,7 @@ class LogService {
     return log;
   }
 
-  async addExerciseEntry(userId, exerciseId, amount) {
+  async addExerciseEntry(userId, exerciseId, amount, date) {
     const exercise = exerciseById(exerciseId);
     if (!exercise) {
       throw new AppError(400, "Invalid exercise");
@@ -101,7 +117,7 @@ class LogService {
     const user = await User.findById(userId);
     const weight = user?.weight || 70;
 
-    const log = await this.getOrCreateTodayLog(userId);
+    const log = await this.getEditableLog(userId, date);
     if (!log.exercises) {
       log.exercises = [];
     }
@@ -121,8 +137,8 @@ class LogService {
     return log;
   }
 
-  async removeExerciseEntry(userId, index) {
-    const log = await this.getOrCreateTodayLog(userId);
+  async removeExerciseEntry(userId, index, date) {
+    const log = await this.getEditableLog(userId, date);
     if (!log.exercises) {
       log.exercises = [];
     }
@@ -158,8 +174,8 @@ class LogService {
     }).sort({ date: -1 });
   }
 
-  async updateNotes(userId, notes) {
-    const log = await this.getOrCreateTodayLog(userId);
+  async updateNotes(userId, notes, date) {
+    const log = await this.getEditableLog(userId, date);
     log.notes = notes;
     await log.save();
     return log;
