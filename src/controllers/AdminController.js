@@ -18,6 +18,15 @@ class AdminController {
       next(error);
     }
   }
+
+  async deleteUser(req, res, next) {
+    try {
+      const data = await adminService.deleteUser(req.params.id, req.user.id);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const adminController = new AdminController();

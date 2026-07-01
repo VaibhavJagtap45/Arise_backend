@@ -1,14 +1,15 @@
 import { Router } from "express";
 import { foodController } from "../controllers/FoodController.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
+import { foodLimiter } from "../middlewares/rateLimiters.js";
 
 const router = Router();
 
 router.use(authMiddleware);
-router.get("/search", (req, res, next) =>
+router.get("/search", foodLimiter, (req, res, next) =>
   foodController.searchFoods(req, res, next),
 );
-router.get("/lookup", (req, res, next) =>
+router.get("/lookup", foodLimiter, (req, res, next) =>
   foodController.lookupNutrition(req, res, next),
 );
 router.post("/", (req, res, next) =>

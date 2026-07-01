@@ -4,10 +4,20 @@ import { User } from "../models/User.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { userService } from "./UserService.js";
 import { isAdminEmail } from "../config/admin.js";
+import { getJwtSecret } from "../config/env.js";
+
+// Password-reset abuse guard: after this many failed identity checks on one
+// account, block further attempts for the lock window. Complements the IP-level
+// rate limiter on the forgot-password route.
+const MAX_RESET_ATTEMPTS = 5;
+const RESET_LOCK_MS = 15 * 60 * 1000;
 
 class AuthService {
   constructor() {
-    this.jwtSecret = process.env.JWT_SECRET || "dev-secret-change-me";
+    // Single source of truth for the secret. In production validateEnv() (called
+    // at startup) has already guaranteed a real value is present; in development
+    // this resolves to a throwaway fallback.
+    this.jwtSecret = getJwtSecret();
     // Sessions last 7 days by default; override with JWT_EXPIRES_IN (e.g. "12h",
     // "30d"). After this window the client receives a 401 and is signed out.
     this.jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
@@ -76,20 +86,42 @@ class AuthService {
   // we sign them straight in (same token shape as login).
   async resetPassword(email, fullName, newPassword) {
     const user = await User.findOne({ email: this.normalizeEmail(email) }).select(
-      "+password",
+      "+password +resetAttempts +resetLockedUntil",
     );
+
+    // Account temporarily locked out after repeated failed identity checks.
+    if (
+      user &&
+      user.resetLockedUntil &&
+      user.resetLockedUntil.getTime() > Date.now()
+    ) {
+      throw new AppError(429, "Too many failed attempts. Please try again later.");
+    }
 
     const nameMatches =
       user && user.fullName.trim().toLowerCase() === fullName.trim().toLowerCase();
     if (!user || !nameMatches) {
-      // Deliberately generic so the response doesn't reveal which field was wrong.
+      // Count the failed attempt against the account (when it exists) and lock it
+      // once the threshold is crossed. The response stays deliberately generic so
+      // it never reveals which field was wrong or whether the account exists.
+      if (user) {
+        user.resetAttempts = (user.resetAttempts || 0) + 1;
+        if (user.resetAttempts >= MAX_RESET_ATTEMPTS) {
+          user.resetLockedUntil = new Date(Date.now() + RESET_LOCK_MS);
+          user.resetAttempts = 0;
+        }
+        await user.save();
+      }
       throw new AppError(
         400,
         "We couldn't verify your account. Check your email and the full name on it.",
       );
     }
 
+    // Success — clear the abuse counters and set the new password.
     user.password = await bcrypt.hash(newPassword, this.saltRounds);
+    user.resetAttempts = 0;
+    user.resetLockedUntil = null;
     if (isAdminEmail(user.email)) {
       user.role = "admin";
     }

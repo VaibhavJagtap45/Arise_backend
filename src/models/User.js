@@ -32,6 +32,20 @@ const userSchema = new mongoose.Schema(
       required: true,
       select: false,
     },
+    // Password-reset abuse guard. Failed identity checks on the forgot-password
+    // flow increment resetAttempts; after too many we set resetLockedUntil to
+    // temporarily block further attempts on this account. Hidden by default
+    // (select: false) so they never leak in normal user responses.
+    resetAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
+    resetLockedUntil: {
+      type: Date,
+      default: null,
+      select: false,
+    },
     fullName: {
       type: String,
       required: true,

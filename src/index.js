@@ -3,8 +3,10 @@ import { fileURLToPath } from "url";
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
+import helmet from "helmet";
 import morgan from "morgan";
 import { connectDatabase } from "./config/database.js";
+import { validateEnv } from "./config/env.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 
 import authRoutes from "./routes/auth.js";
@@ -16,6 +18,16 @@ import adminRoutes from "./routes/admin.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Don't advertise the framework/version (harder to fingerprint for known CVEs).
+app.disable("x-powered-by");
+// Trust the first proxy hop so req.ip reflects the real client (X-Forwarded-For)
+// behind a load balancer / hosting proxy — required for correct per-IP rate
+// limiting and logging.
+app.set("trust proxy", 1);
+// Standard secure response headers (CSP is left at helmet's conservative default
+// off for an API; the other protections — HSTS, noSniff, frameguard, etc. apply).
+app.use(helmet());
 const CLIENT_ORIGINS = (process.env.CLIENT_ORIGIN || "*")
   .split(",")
   .map((origin) => origin.trim())
@@ -47,10 +59,21 @@ app.use(
     credentials: true,
   }),
 );
-// Raised from 1mb so a base64 profile photo (a few hundred KB, plus the rest of
-// the profile payload) fits comfortably in a single update request.
-app.use(express.json({ limit: "5mb" }));
-app.use(express.urlencoded({ extended: true, limit: "5mb" }));
+// Keep the default request body small to limit abuse. The one exception is the
+// profile update, which carries a base64 profile photo (a few hundred KB) — that
+// single route gets a larger allowance until photos move to object storage.
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "1mb";
+const PROFILE_BODY_LIMIT = process.env.PROFILE_BODY_LIMIT || "5mb";
+const jsonSmall = express.json({ limit: JSON_BODY_LIMIT });
+const jsonProfile = express.json({ limit: PROFILE_BODY_LIMIT });
+app.use((req, res, next) => {
+  // req.path is the full path at the app level (e.g. "/api/users/profile").
+  if (req.method === "POST" && req.path === "/api/users/profile") {
+    return jsonProfile(req, res, next);
+  }
+  return jsonSmall(req, res, next);
+});
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 app.get("/", (req, res) => {
@@ -123,6 +146,15 @@ const connectDatabaseWithRetry = async (attempt = 1) => {
 };
 
 export const startServer = async () => {
+  // Fail fast on insecure/missing config (e.g. no real JWT_SECRET in production)
+  // before we bind the port and start accepting requests.
+  try {
+    validateEnv();
+  } catch (error) {
+    console.error(`[startup] ${error.message}`);
+    process.exit(1);
+  }
+
   // Bind to 0.0.0.0 so physical devices and emulators on the LAN can reach the
   // API at the dev machine's IP, not just localhost.
   const server = app.listen(PORT, "0.0.0.0", () => {

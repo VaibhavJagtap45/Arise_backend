@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import { User } from "../models/User.js";
 import { DailyLog } from "../models/DailyLog.js";
+import { Transaction } from "../models/Transaction.js";
+import { Budget } from "../models/Budget.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { startOfISTDay } from "./LogService.js";
 
@@ -205,6 +207,40 @@ class AdminService {
       adherence: computeAdherence(user, logs, periodDays),
       days,
       weightHistory,
+    };
+  }
+
+  // Permanently remove a user and everything tied to them (food logs, money
+  // transactions, budgets). Guards against an admin deleting their own account.
+  async deleteUser(userId, requestingAdminId) {
+    if (!mongoose.isValidObjectId(userId)) {
+      throw new AppError(400, "Invalid user id");
+    }
+    if (requestingAdminId && userId === String(requestingAdminId)) {
+      throw new AppError(400, "You can't delete your own admin account.");
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new AppError(404, "User not found");
+    }
+
+    const id = user._id.toString();
+    const [logs, transactions, budgets] = await Promise.all([
+      DailyLog.deleteMany({ userId: id }),
+      Transaction.deleteMany({ userId: id }),
+      Budget.deleteMany({ userId: id }),
+    ]);
+    await user.deleteOne();
+
+    return {
+      deleted: true,
+      id,
+      removed: {
+        logs: logs.deletedCount || 0,
+        transactions: transactions.deletedCount || 0,
+        budgets: budgets.deletedCount || 0,
+      },
     };
   }
 }
