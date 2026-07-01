@@ -3,11 +3,85 @@ import { User } from "../models/User.js";
 import { DailyLog } from "../models/DailyLog.js";
 import { Transaction } from "../models/Transaction.js";
 import { Budget } from "../models/Budget.js";
+import { CoachNote } from "../models/CoachNote.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { startOfISTDay } from "./LogService.js";
 
 const DAY_MS = 86400000;
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snacks"];
+
+// A reasonable daily protein target for adherence flags (~1.6 g/kg).
+const proteinTargetOf = (user) => Math.round((user.weight || 70) * 1.6);
+
+// Risk-flag metadata surfaced to the coaching dashboard.
+const FLAG_META = {
+  inactive: { label: "Inactive", severity: "high" },
+  gaining_weight: { label: "Gaining weight", severity: "high" },
+  over_calories: { label: "Often over calories", severity: "medium" },
+  low_protein: { label: "Low protein", severity: "medium" },
+  losing_consistency: { label: "Losing consistency", severity: "medium" },
+  missing_workouts: { label: "Missing workouts", severity: "low" },
+};
+
+// Net weight change (kg) across weigh-ins within the window (+ = gained).
+const weightTrend = (user, windowStart) => {
+  const history = (user.weightHistory || [])
+    .map((entry) => ({ t: new Date(entry.date).getTime(), w: Number(entry.weight) }))
+    .filter((e) => Number.isFinite(e.t) && Number.isFinite(e.w) && e.t >= windowStart)
+    .sort((a, b) => a.t - b.t);
+  if (history.length < 2) return 0;
+  return history[history.length - 1].w - history[0].w;
+};
+
+// Derive risk flags for a user from their adherence + weight trend.
+const computeFlags = (user, adherence, windowStart) => {
+  const keys = [];
+  const isLoss = user.dietaryGoal !== "weight_gain";
+
+  const inactiveDays = adherence.lastActive
+    ? (Date.now() - new Date(adherence.lastActive)) / DAY_MS
+    : Infinity;
+  if (inactiveDays > 5) keys.push("inactive");
+  if (isLoss && weightTrend(user, windowStart) > 0.4) keys.push("gaining_weight");
+  if (adherence.daysLogged >= 3 && adherence.onTargetPct < 40 && adherence.avgNet > adherence.target)
+    keys.push("over_calories");
+  if (adherence.daysLogged >= 3 && adherence.avgProtein < proteinTargetOf(user) * 0.6)
+    keys.push("low_protein");
+  if (adherence.consistencyPct < 40 && adherence.streak === 0 && adherence.daysLogged >= 1)
+    keys.push("losing_consistency");
+  if (adherence.daysLogged >= 5 && adherence.workoutDays < 2)
+    keys.push("missing_workouts");
+
+  return keys.map((key) => ({ key, ...FLAG_META[key] }));
+};
+
+// Ready-to-send coaching messages an admin can copy, tailored to the flags and
+// positives. A lightweight rules-based "AI coach message generator".
+const suggestCoachMessages = (user, adherence, flags) => {
+  const name = (user.fullName || "there").trim().split(/\s+/)[0];
+  const has = new Set(flags.map((f) => f.key));
+  const messages = [];
+
+  if (has.has("inactive"))
+    messages.push(`Hi ${name}, we've missed you! Log just one meal today to restart your streak — small steps count.`);
+  if (has.has("gaining_weight"))
+    messages.push(`${name}, the scale ticked up a little. Let's tighten portions slightly and keep protein high — you've got this.`);
+  if (has.has("over_calories"))
+    messages.push(`${name}, a few days went over target recently. A lighter dinner and a short walk will balance it out nicely.`);
+  if (has.has("low_protein"))
+    messages.push(`${name}, your protein has been on the low side. Add dal, paneer, eggs or curd to one meal each day.`);
+  if (has.has("missing_workouts"))
+    messages.push(`${name}, try to fit in a couple of short workouts this week — even 20-minute sessions add up.`);
+  if (has.has("losing_consistency"))
+    messages.push(`${name}, consistency slipped a bit — daily logging is the biggest win. Let's aim for a 3-day streak.`);
+
+  if (adherence.score >= 75)
+    messages.push(`Great work ${name}! ${adherence.score}/100 adherence and a ${adherence.streak}-day streak — keep it going!`);
+  else if (messages.length === 0)
+    messages.push(`${name} is putting in steady work — a quick check-in and some encouragement will keep the momentum.`);
+
+  return messages;
+};
 
 const mealCount = (log) =>
   MEAL_TYPES.reduce((sum, meal) => sum + (log.meals?.[meal]?.length || 0), 0);
@@ -16,6 +90,16 @@ const netOf = (log) =>
   Math.round((log.totals?.calories || 0) - (log.caloriesBurned || 0));
 
 const istDayKey = (date) => startOfISTDay(new Date(date)).getTime();
+
+const serializeCoachNote = (note) => ({
+  id: note._id,
+  userId: note.userId,
+  authorId: note.authorId,
+  authorName: note.authorName,
+  text: note.text,
+  createdAt: note.createdAt,
+  updatedAt: note.updatedAt,
+});
 
 // A day "counts as on the diet" when net calories sit on the right side of the
 // target for the user's goal: under target (with a little slack) for loss /
@@ -46,11 +130,14 @@ const computeAdherence = (user, logs, periodDays) => {
 
   let onTargetDays = 0;
   let netSum = 0;
+  let proteinSum = 0;
   for (const log of logged) {
     const net = netOf(log);
     netSum += net;
+    proteinSum += Math.round(log.totals?.protein || 0);
     if (isOnTarget(net, target, isGain)) onTargetDays += 1;
   }
+  const workoutDays = logs.filter((log) => (log.exercises?.length || 0) > 0).length;
 
   const consistency = Math.min(daysLogged / periodDays, 1);
   const onTargetRate = daysLogged ? onTargetDays / daysLogged : 0;
@@ -73,6 +160,8 @@ const computeAdherence = (user, logs, periodDays) => {
     consistencyPct: Math.round(consistency * 100),
     onTargetPct: Math.round(onTargetRate * 100),
     avgNet: daysLogged ? Math.round(netSum / daysLogged) : 0,
+    avgProtein: daysLogged ? Math.round(proteinSum / daysLogged) : 0,
+    workoutDays,
     streak: computeStreak(logged),
     lastActive,
   };
@@ -105,6 +194,7 @@ class AdminService {
         byUser.get(user._id.toString()) || [],
         periodDays,
       );
+      const flags = computeFlags(user, adherence, windowStart.getTime());
       return {
         id: user._id,
         fullName: user.fullName,
@@ -116,6 +206,8 @@ class AdminService {
         weight: user.weight,
         targetWeight: user.targetWeight || null,
         createdAt: user.createdAt,
+        flags,
+        flagCount: flags.length,
         ...adherence,
       };
     });
@@ -161,9 +253,14 @@ class AdminService {
       userId: user._id.toString(),
       date: { $gte: windowStart },
     }).sort({ date: -1 });
+    const notes = await CoachNote.find({ userId: user._id.toString() })
+      .sort({ createdAt: -1 })
+      .limit(20);
 
     const target = user.dailyCalorieTarget || 2000;
     const isGain = user.dietaryGoal === "weight_gain";
+    const adherence = computeAdherence(user, logs, periodDays);
+    const flags = computeFlags(user, adherence, windowStart.getTime());
 
     const days = logs.map((log) => {
       const eaten = Math.round(log.totals?.calories || 0);
@@ -204,14 +301,62 @@ class AdminService {
         role: user.role || "user",
         createdAt: user.createdAt,
       },
-      adherence: computeAdherence(user, logs, periodDays),
+      adherence,
+      flags,
+      suggestedMessages: suggestCoachMessages(user, adherence, flags),
+      notes: notes.map(serializeCoachNote),
       days,
       weightHistory,
     };
   }
 
+  async addCoachNote(userId, adminUser, text) {
+    if (!mongoose.isValidObjectId(userId)) {
+      throw new AppError(400, "Invalid user id");
+    }
+
+    const cleanText = String(text || "").trim();
+    if (!cleanText) {
+      throw new AppError(400, "Note text is required");
+    }
+    if (cleanText.length > 1000) {
+      throw new AppError(400, "Note must be 1000 characters or less");
+    }
+
+    const user = await User.findById(userId).select("_id");
+    if (!user) {
+      throw new AppError(404, "User not found");
+    }
+
+    const note = await CoachNote.create({
+      userId: user._id.toString(),
+      authorId: adminUser?._id?.toString() || "",
+      authorName: adminUser?.fullName || adminUser?.email || "Admin",
+      text: cleanText,
+    });
+
+    return serializeCoachNote(note);
+  }
+
+  async deleteCoachNote(userId, noteId) {
+    if (!mongoose.isValidObjectId(userId)) {
+      throw new AppError(400, "Invalid user id");
+    }
+    if (!mongoose.isValidObjectId(noteId)) {
+      throw new AppError(400, "Invalid note id");
+    }
+
+    const note = await CoachNote.findOneAndDelete({ _id: noteId, userId });
+    if (!note) {
+      throw new AppError(404, "Coach note not found");
+    }
+
+    return { deleted: true, id: noteId };
+  }
+
   // Permanently remove a user and everything tied to them (food logs, money
-  // transactions, budgets). Guards against an admin deleting their own account.
+  // transactions, budgets and coach notes). Guards against an admin deleting
+  // their own account.
   async deleteUser(userId, requestingAdminId) {
     if (!mongoose.isValidObjectId(userId)) {
       throw new AppError(400, "Invalid user id");
@@ -226,10 +371,11 @@ class AdminService {
     }
 
     const id = user._id.toString();
-    const [logs, transactions, budgets] = await Promise.all([
+    const [logs, transactions, budgets, notes] = await Promise.all([
       DailyLog.deleteMany({ userId: id }),
       Transaction.deleteMany({ userId: id }),
       Budget.deleteMany({ userId: id }),
+      CoachNote.deleteMany({ userId: id }),
     ]);
     await user.deleteOne();
 
@@ -240,6 +386,7 @@ class AdminService {
         logs: logs.deletedCount || 0,
         transactions: transactions.deletedCount || 0,
         budgets: budgets.deletedCount || 0,
+        notes: notes.deletedCount || 0,
       },
     };
   }

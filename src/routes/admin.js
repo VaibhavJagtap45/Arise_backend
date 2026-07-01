@@ -17,6 +17,12 @@ router.get("/users", (req, res, next) =>
 router.get("/users/:id", (req, res, next) =>
   adminController.getUser(req, res, next),
 );
+router.post("/users/:id/notes", (req, res, next) =>
+  adminController.addCoachNote(req, res, next),
+);
+router.delete("/users/:id/notes/:noteId", (req, res, next) =>
+  adminController.deleteCoachNote(req, res, next),
+);
 router.delete("/users/:id", (req, res, next) =>
   adminController.deleteUser(req, res, next),
 );
