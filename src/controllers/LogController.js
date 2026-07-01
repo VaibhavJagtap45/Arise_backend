@@ -1,40 +1,10 @@
-import { z } from "zod";
 import { logService } from "../services/LogService.js";
 import { exerciseCatalog } from "../utils/exerciseCalculator.js";
 
-// Optional ISO date lets the meal/exercise/notes endpoints edit a past day's log
-// (e.g. from the Monthly Log day view); omitted means today.
-const isoDate = z.string().datetime().optional();
-
-const AddMealSchema = z.object({
-  mealType: z.enum(["breakfast", "lunch", "dinner", "snacks"]),
-  foodId: z.string().min(1),
-  quantity: z.coerce.number().positive(),
-  date: isoDate,
-});
-
-const RemoveMealSchema = z.object({
-  mealType: z.enum(["breakfast", "lunch", "dinner", "snacks"]),
-  index: z.coerce.number().int().nonnegative(),
-  date: isoDate,
-});
-
-const AddExerciseSchema = z.object({
-  exerciseId: z.string().min(1),
-  amount: z.coerce.number().positive(),
-  date: isoDate,
-});
-
-const RemoveExerciseSchema = z.object({
-  index: z.coerce.number().int().nonnegative(),
-  date: isoDate,
-});
-
-const MonthSchema = z.object({
-  year: z.coerce.number().int().min(2000).max(2100),
-  month: z.coerce.number().int().min(1).max(12),
-});
-
+// Schema-backed bodies/queries are validated at the route edge (see
+// validators/log.validators.js) and read from `req.validated`. The date/notes
+// endpoints keep their lenient manual parsing (missing values default rather
+// than 400).
 class LogController {
   async getTodayLog(req, res, next) {
     try {
@@ -47,7 +17,7 @@ class LogController {
 
   async addMealEntry(req, res, next) {
     try {
-      const data = AddMealSchema.parse(req.body);
+      const data = req.validated;
       const log = await logService.addMealEntry(
         req.user.id,
         data.mealType,
@@ -63,7 +33,7 @@ class LogController {
 
   async removeMealEntry(req, res, next) {
     try {
-      const data = RemoveMealSchema.parse(req.body);
+      const data = req.validated;
       const log = await logService.removeMealEntry(
         req.user.id,
         data.mealType,
@@ -78,7 +48,7 @@ class LogController {
 
   async addExercise(req, res, next) {
     try {
-      const data = AddExerciseSchema.parse(req.body);
+      const data = req.validated;
       const log = await logService.addExerciseEntry(
         req.user.id,
         data.exerciseId,
@@ -93,7 +63,7 @@ class LogController {
 
   async removeExercise(req, res, next) {
     try {
-      const data = RemoveExerciseSchema.parse(req.body);
+      const data = req.validated;
       const log = await logService.removeExerciseEntry(
         req.user.id,
         data.index,
@@ -125,7 +95,7 @@ class LogController {
 
   async getMonthlyLogs(req, res, next) {
     try {
-      const { year, month } = MonthSchema.parse(req.query);
+      const { year, month } = req.validated;
       const logs = await logService.getMonthlyLogs(req.user.id, year, month);
       res.json({ success: true, data: logs });
     } catch (error) {

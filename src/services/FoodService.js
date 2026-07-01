@@ -1,19 +1,6 @@
 import { Food } from "../models/Food.js";
 import { AppError } from "../middlewares/errorHandler.js";
-
-const NUTRIENTS = [
-  "calories",
-  "protein",
-  "carbs",
-  "fat",
-  "fiber",
-  "calcium",
-  "iron",
-  "sodium",
-  "potassium",
-  "vitaminC",
-  "vitaminA",
-];
+import { NUTRIENTS } from "../constants/nutrition.js";
 
 const weightedUnits = new Set(["g", "ml"]);
 const allowedServingUnits = new Set([
@@ -56,15 +43,21 @@ class FoodService {
       filter.category = category;
     }
 
-    return Food.find(filter).sort({ isCustom: -1, category: 1, name: 1 }).limit(80);
+    return Food.find(filter)
+      .sort({ isCustom: -1, category: 1, name: 1 })
+      .limit(80)
+      .lean();
   }
 
+  // Read-only: consumers (search results, calculateNutrition) only read fields,
+  // so `.lean()` avoids hydrating a full Mongoose document. Custom foods are
+  // created via `new Food(...)`, never mutated through these getters.
   async getFoodById(id) {
-    return Food.findById(id);
+    return Food.findById(id).lean();
   }
 
   async getFoodsByCategory(category) {
-    return Food.find({ category }).sort({ name: 1 });
+    return Food.find({ category }).sort({ name: 1 }).lean();
   }
 
   async getAllCategories() {

@@ -2,6 +2,8 @@ import { Router } from "express";
 import { foodController } from "../controllers/FoodController.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { foodLimiter } from "../middlewares/rateLimiters.js";
+import { validate } from "../middlewares/validate.js";
+import { FoodSchema, NutritionSchema } from "../validators/food.validators.js";
 
 const router = Router();
 
@@ -12,7 +14,7 @@ router.get("/search", foodLimiter, (req, res, next) =>
 router.get("/lookup", foodLimiter, (req, res, next) =>
   foodController.lookupNutrition(req, res, next),
 );
-router.post("/", (req, res, next) =>
+router.post("/", validate(FoodSchema), (req, res, next) =>
   foodController.createCustomFood(req, res, next),
 );
 router.get("/categories", (req, res, next) =>
@@ -21,7 +23,7 @@ router.get("/categories", (req, res, next) =>
 router.get("/category/:category", (req, res, next) =>
   foodController.getFoodsByCategory(req, res, next),
 );
-router.post("/calculate-nutrition", (req, res, next) =>
+router.post("/calculate-nutrition", validate(NutritionSchema), (req, res, next) =>
   foodController.calculateNutrition(req, res, next),
 );
 

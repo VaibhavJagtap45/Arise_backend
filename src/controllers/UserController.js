@@ -1,64 +1,7 @@
-import { z } from "zod";
 import { userService } from "../services/UserService.js";
 
-const ReminderSchema = z
-  .object({
-    enabled: z.boolean().optional(),
-    intervalMinutes: z.coerce.number().int().min(15).max(600).optional(),
-  })
-  .optional();
-
-const RemindersSchema = z
-  .object({ water: ReminderSchema, walk: ReminderSchema })
-  .optional();
-
-const timeString = z.string().regex(/^\d{1,2}:\d{2}$/);
-const ScheduleSchema = z
-  .object({
-    wakeTime: timeString.optional(),
-    sleepTime: timeString.optional(),
-    workoutTime: timeString.optional(),
-    notify: z.boolean().optional(),
-  })
-  .optional();
-
-// A data-URI/base64 photo can be a few hundred KB; cap the string so a single
-// oversized upload can't bloat the document (mirrors the express body limit).
-const PHOTO_MAX = 4_000_000;
-
-const UpdateProfileSchema = z.object({
-  fullName: z.string().trim().min(2).max(80).optional(),
-  phone: z.string().trim().max(20).optional(),
-  address: z.string().trim().max(300).optional(),
-  profilePhoto: z.string().max(PHOTO_MAX).optional(),
-  age: z.coerce.number().int().min(13).max(120).optional(),
-  gender: z.enum(["male", "female", "other"]).optional(),
-  height: z.coerce.number().min(100).max(250).optional(),
-  weight: z.coerce.number().min(20).max(500).optional(),
-  targetWeight: z.coerce.number().min(20).max(500).optional(),
-  targetDays: z.coerce.number().int().min(1).max(3650).optional(),
-  reminders: RemindersSchema,
-  schedule: ScheduleSchema,
-  activityLevel: z
-    .enum(["sedentary", "light", "moderate", "active", "very_active"])
-    .optional(),
-  dietaryGoal: z
-    .enum([
-      "maintenance",
-      "mild_weight_loss",
-      "weight_loss",
-      "aggressive_weight_loss",
-      "weight_gain",
-    ])
-    .optional(),
-  dietType: z.enum(["vegetarian", "non_vegetarian"]).optional(),
-});
-
-const LogWeightSchema = z.object({
-  weight: z.coerce.number().min(20).max(500),
-  date: z.string().datetime().optional(),
-});
-
+// Update/log-weight bodies are validated at the route edge
+// (validators/user.validators.js) and read from `req.validated`.
 class UserController {
   async getProfile(req, res, next) {
     try {
@@ -79,7 +22,7 @@ class UserController {
 
   async updateProfile(req, res, next) {
     try {
-      const data = UpdateProfileSchema.parse(req.body);
+      const data = req.validated;
       const user = await userService.updateUserProfile(req.user.id, data);
 
       if (
@@ -132,7 +75,7 @@ class UserController {
 
   async logWeight(req, res, next) {
     try {
-      const data = LogWeightSchema.parse(req.body);
+      const data = req.validated;
       const progress = await userService.logWeight(req.user.id, data);
       res.json({ success: true, data: progress });
     } catch (error) {

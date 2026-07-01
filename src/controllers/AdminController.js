@@ -1,14 +1,10 @@
-import { z } from "zod";
 import { adminService } from "../services/AdminService.js";
 
-const CoachNoteSchema = z.object({
-  text: z.string().trim().min(1).max(1000),
-});
-
+// Query/body validation happens at the route edge (validators/admin.validators.js).
 class AdminController {
   async getUsers(req, res, next) {
     try {
-      const data = await adminService.getUsersOverview();
+      const data = await adminService.getUsersOverview(req.validated);
       res.json({ success: true, data });
     } catch (error) {
       next(error);
@@ -26,7 +22,7 @@ class AdminController {
 
   async addCoachNote(req, res, next) {
     try {
-      const { text } = CoachNoteSchema.parse(req.body);
+      const { text } = req.validated;
       const data = await adminService.addCoachNote(
         req.params.id,
         req.adminUser,

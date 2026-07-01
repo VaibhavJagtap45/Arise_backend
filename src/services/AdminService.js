@@ -6,9 +6,9 @@ import { Budget } from "../models/Budget.js";
 import { CoachNote } from "../models/CoachNote.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { startOfISTDay } from "./LogService.js";
+import { MEAL_TYPES } from "../constants/nutrition.js";
 
 const DAY_MS = 86400000;
-const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snacks"];
 
 // A reasonable daily protein target for adherence flags (~1.6 g/kg).
 const proteinTargetOf = (user) => Math.round((user.weight || 70) * 1.6);
@@ -167,17 +167,54 @@ const computeAdherence = (user, logs, periodDays) => {
   };
 };
 
+// The per-user adherence computation scans every user + 30 days of logs, so the
+// result is cached briefly (all-users scope). Search / sort / pagination are
+// then applied to these cached rows per request — cheap in-memory work — so
+// paging and searching never recompute. Invalidated on user deletion.
+const OVERVIEW_TTL_MS = 45000;
+let overviewCache = null; // { at, items, summary }
+
+const sortOverview = (rows, sort) => {
+  const copy = [...rows]; // never mutate the cached array
+  switch (sort) {
+    case "name":
+      return copy.sort((a, b) =>
+        (a.fullName || "").localeCompare(b.fullName || ""),
+      );
+    case "lastActive":
+      return copy.sort(
+        (a, b) => new Date(b.lastActive || 0) - new Date(a.lastActive || 0),
+      );
+    case "flags":
+      return copy.sort((a, b) => b.flagCount - a.flagCount || b.score - a.score);
+    case "score":
+    default:
+      return copy.sort((a, b) => b.score - a.score);
+  }
+};
+
 class AdminService {
-  // All users with a 30-day diet-adherence summary, plus headline stats.
-  async getUsersOverview() {
+  // Compute every user's 30-day diet-adherence row + the global headline stats.
+  // Expensive — call through getUsersOverview (cached), not directly.
+  async buildOverview() {
     const periodDays = 30;
     const windowStart = startOfISTDay(
       new Date(Date.now() - (periodDays - 1) * DAY_MS),
     );
 
+    // Positive projections keep the working set small (and never load the
+    // password hash); `.lean()` skips Mongoose document hydration for these
+    // read-only rows. Only the fields consumed below are fetched.
     const [users, logs] = await Promise.all([
-      User.find().sort({ createdAt: -1 }),
-      DailyLog.find({ date: { $gte: windowStart } }),
+      User.find()
+        .select(
+          "fullName email profilePhoto role dietaryGoal dietType weight targetWeight createdAt weightHistory dailyCalorieTarget",
+        )
+        .sort({ createdAt: -1 })
+        .lean(),
+      DailyLog.find({ date: { $gte: windowStart } })
+        .select("userId date totals caloriesBurned meals exercises")
+        .lean(),
     ]);
 
     // Group logs by user once (avoids an N+1 query per user).
@@ -223,6 +260,7 @@ class AdminService {
       : 0;
 
     return {
+      items,
       summary: {
         totalUsers: users.length,
         activeUsers,
@@ -230,7 +268,48 @@ class AdminService {
         onTrack: items.filter((item) => item.score >= 60).length,
         offTrack: items.filter((item) => item.score < 40).length,
       },
-      users: items,
+    };
+  }
+
+  // Cached + server-side searched/sorted/paginated overview. The summary always
+  // reflects the full user base; `search`/`sort` apply to all rows before
+  // slicing. Passing no `limit` (0) returns every row (legacy/back-compat).
+  async getUsersOverview({ page = 1, limit = 0, search = "", sort = "score" } = {}) {
+    const now = Date.now();
+    if (!overviewCache || now - overviewCache.at > OVERVIEW_TTL_MS) {
+      const { items, summary } = await this.buildOverview();
+      overviewCache = { at: now, items, summary };
+    }
+
+    let rows = overviewCache.items;
+    const q = String(search || "").trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(
+        (u) =>
+          u.fullName?.toLowerCase().includes(q) ||
+          u.email?.toLowerCase().includes(q),
+      );
+    }
+    rows = sortOverview(rows, sort);
+
+    const total = rows.length;
+    const usePaging = limit > 0;
+    const totalPages = usePaging ? Math.max(1, Math.ceil(total / limit)) : 1;
+    const safePage = Math.min(Math.max(1, page), totalPages);
+    const users = usePaging
+      ? rows.slice((safePage - 1) * limit, (safePage - 1) * limit + limit)
+      : rows;
+
+    return {
+      summary: overviewCache.summary,
+      users,
+      pagination: {
+        page: safePage,
+        limit,
+        total,
+        totalPages,
+        hasMore: usePaging ? safePage < totalPages : false,
+      },
     };
   }
 
@@ -240,7 +319,7 @@ class AdminService {
       throw new AppError(400, "Invalid user id");
     }
 
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).lean();
     if (!user) {
       throw new AppError(404, "User not found");
     }
@@ -249,13 +328,20 @@ class AdminService {
     const windowStart = startOfISTDay(
       new Date(Date.now() - (periodDays - 1) * DAY_MS),
     );
-    const logs = await DailyLog.find({
-      userId: user._id.toString(),
-      date: { $gte: windowStart },
-    }).sort({ date: -1 });
-    const notes = await CoachNote.find({ userId: user._id.toString() })
-      .sort({ createdAt: -1 })
-      .limit(20);
+    const [logs, notes] = await Promise.all([
+      DailyLog.find({
+        userId: user._id.toString(),
+        date: { $gte: windowStart },
+      })
+        .select("date totals caloriesBurned meals exercises")
+        .sort({ date: -1 })
+        .lean(),
+      CoachNote.find({ userId: user._id.toString() })
+        .select("userId authorId authorName text createdAt updatedAt")
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean(),
+    ]);
 
     const target = user.dailyCalorieTarget || 2000;
     const isGain = user.dietaryGoal === "weight_gain";
@@ -378,6 +464,7 @@ class AdminService {
       CoachNote.deleteMany({ userId: id }),
     ]);
     await user.deleteOne();
+    overviewCache = null; // the deleted user must drop out immediately
 
     return {
       deleted: true,

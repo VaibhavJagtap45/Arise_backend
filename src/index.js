@@ -4,6 +4,7 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 import morgan from "morgan";
 import { connectDatabase } from "./config/database.js";
 import { validateEnv } from "./config/env.js";
@@ -28,6 +29,10 @@ app.set("trust proxy", 1);
 // Standard secure response headers (CSP is left at helmet's conservative default
 // off for an API; the other protections — HSTS, noSniff, frameguard, etc. apply).
 app.use(helmet());
+// gzip all responses above the default 1 KB threshold. The biggest wins are the
+// admin overview (embeds base64 profile photos) and the monthly-logs payload;
+// small responses are left uncompressed automatically.
+app.use(compression());
 const CLIENT_ORIGINS = (process.env.CLIENT_ORIGIN || "*")
   .split(",")
   .map((origin) => origin.trim())

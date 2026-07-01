@@ -2,13 +2,13 @@ import { DailyLog } from "../models/DailyLog.js";
 import { User } from "../models/User.js";
 import { foodService, NUTRIENTS } from "./FoodService.js";
 import { AppError } from "../middlewares/errorHandler.js";
+import { MEAL_TYPES } from "../constants/nutrition.js";
 import {
   calculateExerciseCalories,
   exerciseById,
 } from "../utils/exerciseCalculator.js";
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snacks"];
 
 const startOfISTDay = (date = new Date()) => {
   const shifted = new Date(date.getTime() + IST_OFFSET_MS);
@@ -154,6 +154,10 @@ class LogService {
     return log;
   }
 
+  // Read-only fetch (today's log / a specific past day). `.lean()` returns a
+  // plain object — cheaper to build and serialize — which is safe here because
+  // callers only read it. Mutations go through getOrCreateLogByDate/getEditableLog
+  // (which return hydrated documents that can be .save()d), not this method.
   async getLogByDate(userId, date) {
     const startDate = startOfISTDay(date);
     const endDate = addDays(startDate, 1);
@@ -161,7 +165,7 @@ class LogService {
     return DailyLog.findOne({
       userId,
       date: { $gte: startDate, $lt: endDate },
-    });
+    }).lean();
   }
 
   async getMonthlyLogs(userId, year, month) {
@@ -171,7 +175,9 @@ class LogService {
     return DailyLog.find({
       userId,
       date: { $gte: startDate, $lt: endDate },
-    }).sort({ date: -1 });
+    })
+      .sort({ date: -1 })
+      .lean();
   }
 
   async updateNotes(userId, notes, date) {
